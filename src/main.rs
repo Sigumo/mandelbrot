@@ -2,13 +2,15 @@ extern crate crossbeam;
 extern crate image;
 extern crate num;
 extern crate num_cpus;
+extern crate crossbeam_utils;
 
 use image::ColorType;
-use image::png::PNGEncoder;
+use image::png::PngEncoder;
 use num::Complex;
 use std::fs::File;
 use std::io::{Result, Write};
 use std::str::FromStr;
+use crossbeam_utils::thread;
 
 fn parse_pair<T: FromStr>(s: &str, separator: char) -> Option<(T, T)> {
     match s.find(separator) {
@@ -68,8 +70,8 @@ fn render(pixels: &mut [u8], bounds: (usize, usize), upper_left: Complex<f64>, l
 fn write_image(filename: &str, pixels: &[u8], bounds: (usize, usize)) -> Result<()> {
     let output = File::create(filename)?;
 
-    let encoder = PNGEncoder::new(output);
-    encoder.encode(&pixels, bounds.0 as u32, bounds.1 as u32, ColorType::Gray(8))?;
+    let encoder = PngEncoder::new(output);
+    encoder.encode(&pixels, bounds.0 as u32, bounds.1 as u32, ColorType::L8).unwrap();
 
     Ok(())
 }
@@ -100,7 +102,7 @@ fn main() {
     {
         let bands: Vec<&mut [u8]> =
             pixels.chunks_mut(rows_per_band * bounds.0).collect();
-        crossbeam::scope(|spawner| {
+        thread::scope(|spawner | {
             for(i, band) in bands.into_iter().enumerate() {
                 let top = rows_per_band * i;
                 let height = band.len() / bounds.0;
@@ -110,11 +112,11 @@ fn main() {
                 let band_lower_right =
                     pixel_to_point(bounds, (bounds.0, top + height), upper_left, lower_right);
 
-                spawner.spawn(move || {
+                spawner.spawn(move |_| {
                     render(band, band_bounds, band_upper_left, band_lower_right);
                 });
             }
-        })
+        }).unwrap();
     }
     write_image(&args[1], &pixels, bounds)
         .expect("ошибка при записи PNG-файла");
